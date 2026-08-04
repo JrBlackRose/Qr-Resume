@@ -48,11 +48,11 @@ st.markdown(
 
 # ── Session state initialisation ─────────────────────────────────────────────
 _DEFAULTS: dict = {
-    "last_filename":  None,      # detect file changes → reset pipeline
-    "raw_text":       None,      # extracted plain text
-    "resume_data":    None,      # structured JSON dict from AI
-    "pdf_bytes":      None,      # compiled PDF bytes
-    "qr_url":         "http://localhost:8501",
+    "last_filename":  None,      
+    "raw_text":       None,      
+    "resume_data":    None,      
+    "pdf_bytes":      None,      
+    "qr_url":         "https://metaresume.streamlit.app", # Updated default!
 }
 for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
@@ -61,51 +61,35 @@ for _k, _v in _DEFAULTS.items():
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📄 Resume AI")
-    st.caption("100 % local · zero cloud · privacy-first")
+    st.caption("Powered by Llama 3.1 & Groq ⚡")
     st.divider()
 
     st.subheader("⚙️ Settings")
 
     model_name: str = st.selectbox(
-        "Ollama model",
-        options=["llama3.1", "llama3.1:8b", "llama3.1:70b", "mistral", "mixtral"],
+        "AI Model",
+        options=["llama-3.1-8b-instant", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"],
         index=0,
-        help="The model must be pulled locally: `ollama pull llama3.1`",
+        help="Select the Groq cloud model to use for structuring.",
     )
 
     qr_url: str = st.text_input(
         "QR Code URL",
         value=st.session_state.qr_url,
-        help=(
-            "Point this to your Cloudflare Tunnel URL "
-            "(https://xyz.trycloudflare.com) or keep it as localhost."
-        ),
+        help="The link that the generated QR code will point to.",
     )
     if qr_url != st.session_state.qr_url:
         st.session_state.qr_url = qr_url
 
     st.divider()
-    st.subheader("📦 Quick-start")
-    st.code(
-        "# 1. Pull the model\n"
-        "ollama pull llama3.1\n\n"
-        "# 2. Install Python deps\n"
-        "pip install -r requirements.txt\n\n"
-        "# 3. Run the app\n"
-        "streamlit run app.py",
-        language="bash",
-    )
-    st.divider()
-    st.info("🔒 No data leaves your machine.", icon="🔒")
-
+    st.info("⚡ Lightning fast inference via Groq API.", icon="⚡")
 
 # ── Main layout ───────────────────────────────────────────────────────────────
-st.title("📄 Resume AI — Local Builder")
+st.title("📄 Resume AI")
 st.markdown(
-    "Upload your resume, extract the text, let **LLaMA 3.1** structure it, "
-    "and export a polished ATS-friendly PDF — entirely on your machine."
+    "Upload your resume, extract the text, let **LLaMA 3.1 (via Groq)** structure it, "
+    "and export a polished ATS-friendly PDF instantly."
 )
-
 st.divider()
 
 
@@ -188,24 +172,18 @@ if uploaded_file is not None:
                 disabled=(st.session_state.resume_data is not None),
             )
 
-        if do_ai:
-            with st.spinner(
-                f"Sending to {model_name} via Ollama…  "
-                "(first run may load the model, allow 30–90 s)"
-            ):
-                try:
+	if do_ai:
+            with st.spinner(f"Sending to {model_name} via Groq API…"):
+		try:
                     st.session_state.resume_data = structure_resume(
                         st.session_state.raw_text,
                         model=model_name,
                     )
                     st.session_state.pdf_bytes = None  # invalidate old PDF
                     st.success("✅ Resume structured successfully!")
-                except Exception as exc:
+		except Exception as exc:
                     st.error(f"❌ AI structuring failed: {exc}")
-                    st.info(
-                        "Make sure Ollama is running (`ollama serve`) "
-                        f"and the model is available (`ollama pull {model_name}`)."
-                    )
+                    st.info("Make sure your GROQ_API_KEY is correctly set in Streamlit Secrets.")
                     st.session_state.resume_data = None
 
         if st.session_state.resume_data:
@@ -323,4 +301,4 @@ if uploaded_file is not None:
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
-st.caption("🔒 Resume AI · All processing is 100 % local · No data is transmitted anywhere.")
+st.caption("🔒 Resume AI · Powered by Streamlit & Groq API.")
