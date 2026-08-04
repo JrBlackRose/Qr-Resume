@@ -9,6 +9,7 @@ Run:  streamlit run app.py
 from __future__ import annotations
 
 import json
+import requests
 
 import streamlit as st
 
@@ -61,7 +62,7 @@ for _k, _v in _DEFAULTS.items():
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📄 Resume AI")
-    st.caption("Powered by Llama 3.1 & Groq ⚡")
+    st.caption("Powered by Llama 3.3 & Groq ⚡")
     st.divider()
 
     st.subheader("⚙️ Settings")
@@ -74,9 +75,9 @@ with st.sidebar:
     )
 
     qr_url: str = st.text_input(
-        "QR Code URL",
+        "Default QR Code URL",
         value=st.session_state.qr_url,
-        help="The link that the generated QR code will point to.",
+        help="Fallback link for the QR code if you don't use the temporary host feature.",
     )
     if qr_url != st.session_state.qr_url:
         st.session_state.qr_url = qr_url
@@ -87,7 +88,7 @@ with st.sidebar:
 # ── Main layout ───────────────────────────────────────────────────────────────
 st.title("📄 Resume AI")
 st.markdown(
-    "Upload your resume, extract the text, let **LLaMA 3.1 (via Groq)** structure it, "
+    "Upload your resume, extract the text, let **LLaMA 3.3 (via Groq)** structure it, "
     "and export a polished ATS-friendly PDF instantly."
 )
 st.divider()
@@ -242,13 +243,11 @@ if uploaded_file is not None:
                         "end_date": exp.get("end_date", ""),
                         "bullets": "\n".join(exp.get("bullets", []))
                     })
-                # Show an empty row if no experience was found so the user can type one in
                 if not exp_data:
                     exp_data = [{"title": "", "company": "", "location": "", "start_date": "", "end_date": "", "bullets": ""}]
                 
                 edited_exp = st.data_editor(exp_data, num_rows="dynamic", use_container_width=True, key="exp_editor")
                 
-                # Sanitize experience back into JSON format and guarantee keys exist
                 rd["experience"] = []
                 for exp in edited_exp:
                     if str(exp.get("title", "")).strip() or str(exp.get("company", "")).strip():
@@ -271,13 +270,11 @@ if uploaded_file is not None:
                         "graduation_date": edu.get("graduation_date", ""),
                         "gpa": edu.get("gpa", "")
                     })
-                # Show an empty row if no education was found
                 if not edu_data:
                     edu_data = [{"degree": "", "institution": "", "location": "", "graduation_date": "", "gpa": ""}]
                 
                 edited_edu = st.data_editor(edu_data, num_rows="dynamic", use_container_width=True, key="edu_editor")
                 
-                # Sanitize education back into JSON format and guarantee keys exist
                 rd["education"] = []
                 for edu in edited_edu:
                     if str(edu.get("degree", "")).strip() or str(edu.get("institution", "")).strip():
@@ -289,12 +286,11 @@ if uploaded_file is not None:
                             "gpa": str(edu.get("gpa", ""))
                         })
                 
-                # Save sanitized data back to session state
                 st.session_state.resume_data = rd
 
 
         # ═══════════════════════════════════════════════════════════════════
-        #  STEP 4 — GENERATE PDF
+        #  STEP 4 — GENERATE PDF & QR
         # ═══════════════════════════════════════════════════════════════════
         if st.session_state.resume_data:
             st.header("④ Generate ATS-Friendly PDF")
@@ -322,16 +318,12 @@ if uploaded_file is not None:
                     .get("contact", {})
                     .get("name", "resume")
                 ) or "resume"
-                safe_name = (
-                    contact_name
-                    .lower()
-                    .replace(" ", "_")
-                    .replace("/", "-")
-                )
+                safe_name = contact_name.lower().replace(" ", "_").replace("/", "-")
                 pdf_filename = f"{safe_name}_resume.pdf"
 
                 pdf_col, qr_col = st.columns([3, 1])
 
+                # ── Download button ───────────────────────────────────────
                 with pdf_col:
                     st.subheader("⬇️ Download")
                     st.download_button(
@@ -348,22 +340,32 @@ if uploaded_file is not None:
                         "Typst-compiled, searchable, ATS-safe"
                     )
 
+                # ── Temporary QR code ─────────────────────────────────────
                 with qr_col:
                     st.subheader("📱 Share via QR")
-                    try:
-                        qr_png = generate_qr_bytes(url=st.session_state.qr_url)
-                        st.image(qr_png, caption=st.session_state.qr_url, width=170)
-                        st.download_button(
-                            label="Save QR PNG",
-                            data=qr_png,
-                            file_name="resume_qr.png",
-                            mime="image/png",
-                            use_container_width=True,
-                        )
-                    except Exception as exc:
-                        st.warning(f"QR generation failed: {exc}")
+                    st.caption("Generate a temporary link to let interviewers scan and view your PDF instantly.")
+                    
+                    if st.button("Generate Interview QR", use_container_width=True):
+                        with st.spinner("Creating secure temporary link..."):
+                            try:
+                                # Upload to tmpfiles.org (deletes automatically after 60 mins)
+                                files = {'file': (pdf_filename, st.session_state.pdf_bytes, 'application/pdf')}
+                                res = requests.post("https://tmpfiles.org/api/v1/upload", files=files)
+                                
+                                if res.status_code == 200:
+                                    # Convert the view URL to a direct download/display URL
+                                    raw_url = res.json()['data']['url']
+                                    direct_url = raw_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+                                    
+                                    qr_png = generate_qr_bytes(url=direct_url)
+                                    st.image(qr_png, caption="Scan to view PDF", width=170)
+                                    st.success("Link active for 60 minutes!")
+                                else:
+                                    st.error("Upload failed. Try again later.")
+                            except Exception as exc:
+                                st.error(f"Failed to generate link: {exc}")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
-st.caption("🔒 Resume AI · Powered by Streamlit & Groq API.")
+st.caption("🔒 Resume AI · Powered by Streamlit & Groq API. QR links are securely deleted after 60 minutes.")
