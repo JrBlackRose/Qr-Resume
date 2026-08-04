@@ -172,16 +172,16 @@ if uploaded_file is not None:
                 disabled=(st.session_state.resume_data is not None),
             )
 
-	if do_ai:
+    if do_ai:
             with st.spinner(f"Sending to {model_name} via Groq API…"):
-		try:
+        try:
                     st.session_state.resume_data = structure_resume(
                         st.session_state.raw_text,
                         model=model_name,
                     )
                     st.session_state.pdf_bytes = None  # invalidate old PDF
                     st.success("✅ Resume structured successfully!")
-		except Exception as exc:
+        except Exception as exc:
                     st.error(f"❌ AI structuring failed: {exc}")
                     st.info("Make sure your GROQ_API_KEY is correctly set in Streamlit Secrets.")
                     st.session_state.resume_data = None
