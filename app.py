@@ -1,0 +1,326 @@
+"""
+Resume AI — Privacy-First Local Resume Builder
+===============================================
+Streamlit application.  All processing happens on your machine;
+nothing is sent to any external service.
+
+Run:  streamlit run app.py
+"""
+from __future__ import annotations
+
+import json
+
+import streamlit as st
+
+from modules import extract_text, structure_resume, generate_pdf, generate_qr_bytes
+
+
+# ── Page configuration ───────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Resume AI",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+# ── Custom CSS ───────────────────────────────────────────────────────────────
+st.markdown(
+    """
+    <style>
+    /* Slightly wider sidebar */
+    section[data-testid="stSidebar"] { min-width: 280px; }
+
+    /* Step header styling */
+    h2 { border-left: 4px solid #2c5f8a; padding-left: 0.5rem; }
+
+    /* Metric cards */
+    [data-testid="metric-container"] {
+        background: #f0f4f8;
+        border-radius: 8px;
+        padding: 0.6rem 1rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ── Session state initialisation ─────────────────────────────────────────────
+_DEFAULTS: dict = {
+    "last_filename":  None,      # detect file changes → reset pipeline
+    "raw_text":       None,      # extracted plain text
+    "resume_data":    None,      # structured JSON dict from AI
+    "pdf_bytes":      None,      # compiled PDF bytes
+    "qr_url":         "http://localhost:8501",
+}
+for _k, _v in _DEFAULTS.items():
+    st.session_state.setdefault(_k, _v)
+
+
+# ── Sidebar ──────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 📄 Resume AI")
+    st.caption("100 % local · zero cloud · privacy-first")
+    st.divider()
+
+    st.subheader("⚙️ Settings")
+
+    model_name: str = st.selectbox(
+        "Ollama model",
+        options=["llama3.1", "llama3.1:8b", "llama3.1:70b", "mistral", "mixtral"],
+        index=0,
+        help="The model must be pulled locally: `ollama pull llama3.1`",
+    )
+
+    qr_url: str = st.text_input(
+        "QR Code URL",
+        value=st.session_state.qr_url,
+        help=(
+            "Point this to your Cloudflare Tunnel URL "
+            "(https://xyz.trycloudflare.com) or keep it as localhost."
+        ),
+    )
+    if qr_url != st.session_state.qr_url:
+        st.session_state.qr_url = qr_url
+
+    st.divider()
+    st.subheader("📦 Quick-start")
+    st.code(
+        "# 1. Pull the model\n"
+        "ollama pull llama3.1\n\n"
+        "# 2. Install Python deps\n"
+        "pip install -r requirements.txt\n\n"
+        "# 3. Run the app\n"
+        "streamlit run app.py",
+        language="bash",
+    )
+    st.divider()
+    st.info("🔒 No data leaves your machine.", icon="🔒")
+
+
+# ── Main layout ───────────────────────────────────────────────────────────────
+st.title("📄 Resume AI — Local Builder")
+st.markdown(
+    "Upload your resume, extract the text, let **LLaMA 3.1** structure it, "
+    "and export a polished ATS-friendly PDF — entirely on your machine."
+)
+
+st.divider()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  STEP 1 — UPLOAD
+# ═════════════════════════════════════════════════════════════════════════════
+st.header("① Upload Resume")
+
+uploaded_file = st.file_uploader(
+    "Drop your resume here",
+    type=["pdf", "png", "jpg", "jpeg", "tiff", "bmp", "webp"],
+    label_visibility="collapsed",
+    help="PDF for text-based resumes; image formats trigger OCR.",
+)
+
+if uploaded_file is not None:
+    # Reset pipeline when a new file is uploaded
+    if st.session_state.last_filename != uploaded_file.name:
+        st.session_state.last_filename = uploaded_file.name
+        st.session_state.raw_text    = None
+        st.session_state.resume_data = None
+        st.session_state.pdf_bytes   = None
+
+    with st.expander(f"📎 {uploaded_file.name}  —  {uploaded_file.size / 1024:.1f} KB"):
+        col_a, col_b, col_c = st.columns(3)
+        col_a.metric("File name", uploaded_file.name)
+        col_b.metric("Size",      f"{uploaded_file.size / 1024:.1f} KB")
+        col_c.metric("Type",      uploaded_file.type or "unknown")
+
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  STEP 2 — EXTRACT TEXT
+    # ═══════════════════════════════════════════════════════════════════════
+    st.header("② Extract Text")
+
+    col_btn, _ = st.columns([1, 4])
+    with col_btn:
+        do_extract = st.button(
+            "🔍 Extract Text",
+            use_container_width=True,
+            type="primary",
+            disabled=(st.session_state.raw_text is not None),
+        )
+
+    if do_extract:
+        with st.spinner("Extracting text…  (OCR may take 10–20 s for images)"):
+            try:
+                file_bytes = uploaded_file.read()
+                st.session_state.raw_text = extract_text(file_bytes, uploaded_file.name)
+                st.success("✅ Text extracted successfully!")
+            except Exception as exc:
+                st.error(f"❌ Extraction failed: {exc}")
+                st.session_state.raw_text = None
+
+    if st.session_state.raw_text:
+        char_count = len(st.session_state.raw_text)
+        st.caption(f"Extracted {char_count:,} characters.")
+        with st.expander("📝 View raw extracted text"):
+            st.text_area(
+                "raw",
+                value=st.session_state.raw_text,
+                height=220,
+                label_visibility="collapsed",
+                disabled=True,
+            )
+
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  STEP 3 — AI STRUCTURING
+    # ═══════════════════════════════════════════════════════════════════════
+    if st.session_state.raw_text:
+        st.header("③ Structure with AI")
+
+        col_btn2, _ = st.columns([1, 4])
+        with col_btn2:
+            do_ai = st.button(
+                f"🤖 Structure with {model_name}",
+                use_container_width=True,
+                type="primary",
+                disabled=(st.session_state.resume_data is not None),
+            )
+
+        if do_ai:
+            with st.spinner(
+                f"Sending to {model_name} via Ollama…  "
+                "(first run may load the model, allow 30–90 s)"
+            ):
+                try:
+                    st.session_state.resume_data = structure_resume(
+                        st.session_state.raw_text,
+                        model=model_name,
+                    )
+                    st.session_state.pdf_bytes = None  # invalidate old PDF
+                    st.success("✅ Resume structured successfully!")
+                except Exception as exc:
+                    st.error(f"❌ AI structuring failed: {exc}")
+                    st.info(
+                        "Make sure Ollama is running (`ollama serve`) "
+                        f"and the model is available (`ollama pull {model_name}`)."
+                    )
+                    st.session_state.resume_data = None
+
+        if st.session_state.resume_data:
+            m1, m2, m3, m4 = st.columns(4)
+            rd = st.session_state.resume_data
+            m1.metric("Name",       rd["contact"].get("name", "—") or "—")
+            m2.metric("Experience", f"{len(rd.get('experience', []))} roles")
+            m3.metric("Education",  f"{len(rd.get('education', []))} entries")
+            m4.metric(
+                "Skills",
+                f"{len(rd['skills'].get('technical', [])) + len(rd['skills'].get('soft', []))}"
+            )
+
+            with st.expander("🧩 Edit structured JSON (optional)", expanded=False):
+                st.caption(
+                    "You can correct any field before generating the PDF. "
+                    "Changes are applied on the next 'Generate PDF' click."
+                )
+                json_input = st.text_area(
+                    "json_editor",
+                    value=json.dumps(st.session_state.resume_data, indent=2, ensure_ascii=False),
+                    height=480,
+                    label_visibility="collapsed",
+                )
+                if st.button("💾 Save JSON edits"):
+                    try:
+                        edited = json.loads(json_input)
+                        st.session_state.resume_data = edited
+                        st.session_state.pdf_bytes   = None  # require re-generation
+                        st.success("JSON saved — click Generate PDF below.")
+                    except json.JSONDecodeError as exc:
+                        st.error(f"Invalid JSON: {exc}")
+
+
+        # ═══════════════════════════════════════════════════════════════════
+        #  STEP 4 — GENERATE PDF
+        # ═══════════════════════════════════════════════════════════════════
+        if st.session_state.resume_data:
+            st.header("④ Generate ATS-Friendly PDF")
+
+            col_btn3, _ = st.columns([1, 4])
+            with col_btn3:
+                do_pdf = st.button(
+                    "📄 Generate PDF",
+                    use_container_width=True,
+                    type="primary",
+                )
+
+            if do_pdf:
+                with st.spinner("Compiling Typst template…"):
+                    try:
+                        st.session_state.pdf_bytes = generate_pdf(st.session_state.resume_data)
+                        st.success("✅ PDF generated!")
+                    except Exception as exc:
+                        st.error(f"❌ PDF generation failed:\n\n{exc}")
+                        st.session_state.pdf_bytes = None
+
+            if st.session_state.pdf_bytes:
+                # Build a clean filename from the candidate's name
+                contact_name = (
+                    st.session_state.resume_data
+                    .get("contact", {})
+                    .get("name", "resume")
+                ) or "resume"
+                safe_name = (
+                    contact_name
+                    .lower()
+                    .replace(" ", "_")
+                    .replace("/", "-")
+                )
+                pdf_filename = f"{safe_name}_resume.pdf"
+
+                pdf_col, qr_col = st.columns([3, 1])
+
+                # ── Download button ───────────────────────────────────────
+                with pdf_col:
+                    st.subheader("⬇️ Download")
+                    st.download_button(
+                        label="Download PDF",
+                        data=st.session_state.pdf_bytes,
+                        file_name=pdf_filename,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary",
+                    )
+                    pdf_kb = len(st.session_state.pdf_bytes) / 1024
+                    st.caption(
+                        f"**{pdf_filename}**  ·  {pdf_kb:.1f} KB  ·  "
+                        "Typst-compiled, searchable, ATS-safe"
+                    )
+
+                # ── QR code ───────────────────────────────────────────────
+                with qr_col:
+                    st.subheader("📱 Share via QR")
+                    try:
+                        qr_png = generate_qr_bytes(url=st.session_state.qr_url)
+                        st.image(qr_png, caption=st.session_state.qr_url, width=170)
+                        st.download_button(
+                            label="Save QR PNG",
+                            data=qr_png,
+                            file_name="resume_qr.png",
+                            mime="image/png",
+                            use_container_width=True,
+                        )
+                    except Exception as exc:
+                        st.warning(f"QR generation failed: {exc}")
+
+                st.divider()
+                st.caption(
+                    "💡 **Tip:** To share over the internet, install `cloudflared` and run  "
+                    "`cloudflared tunnel --url http://localhost:8501`.  "
+                    "Paste the generated URL into the **QR Code URL** field in the sidebar."
+                )
+
+
+# ── Footer ────────────────────────────────────────────────────────────────────
+st.divider()
+st.caption("🔒 Resume AI · All processing is 100 % local · No data is transmitted anywhere.")

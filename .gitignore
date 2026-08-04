@@ -1,0 +1,17 @@
+# Virtual Environments
+venv/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Local Test Files
+*.pdf
+*.png
+*.jpg
+*.jpeg
+
+# Secrets and Environment Variables
+.env
+.streamlit/secrets.toml
