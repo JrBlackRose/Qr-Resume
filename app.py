@@ -70,7 +70,7 @@ with st.sidebar:
         "AI Model",
         options=["llama-3.1-8b-instant", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"],
         index=0,
-        help="Select the Groq cloud model to use for structuring.",
+        help="Select the Groq cloud model to use for structuring. The 70b model is highly recommended for accuracy.",
     )
 
     qr_url: str = st.text_input(
@@ -158,7 +158,7 @@ if uploaded_file is not None:
 
 
     # ═══════════════════════════════════════════════════════════════════════
-    #  STEP 3 — AI STRUCTURING
+    #  STEP 3 — AI STRUCTURING & EDITING
     # ═══════════════════════════════════════════════════════════════════════
     if st.session_state.raw_text:
         st.header("③ Structure with AI")
@@ -201,31 +201,96 @@ if uploaded_file is not None:
             m2.metric("Experience", f"{len(rd['experience'])} roles")
             m3.metric("Education",  f"{len(rd['education'])} entries")
 
-            # Safely count skills
             tech_count = len(rd["skills"].get("technical") or [])
             soft_count = len(rd["skills"].get("soft") or [])
             m4.metric("Skills", f"{tech_count + soft_count}")
 
-            # --- JSON EDITOR ---
-            with st.expander("🧩 Edit structured JSON (optional)", expanded=False):
-                st.caption(
-                    "You can correct any field before generating the PDF. "
-                    "Changes are applied on the next 'Generate PDF' click."
-                )
-                json_input = st.text_area(
-                    "json_editor",
-                    value=json.dumps(st.session_state.resume_data, indent=2, ensure_ascii=False),
-                    height=480,
-                    label_visibility="collapsed",
-                )
-                if st.button("💾 Save JSON edits"):
-                    try:
-                        edited = json.loads(json_input)
-                        st.session_state.resume_data = edited
-                        st.session_state.pdf_bytes   = None
-                        st.success("JSON saved — click Generate PDF below.")
-                    except json.JSONDecodeError as exc:
-                        st.error(f"Invalid JSON: {exc}")
+            # --- BEAUTIFUL UI EDITOR ---
+            with st.expander("✏️ Edit Resume Details", expanded=True):
+                st.caption("Review and edit your details below. You can add or delete rows in the tables.")
+                
+                st.subheader("Contact Information")
+                c1, c2, c3 = st.columns(3)
+                rd["contact"]["name"] = c1.text_input("Name", rd["contact"].get("name", ""))
+                rd["contact"]["email"] = c2.text_input("Email", rd["contact"].get("email", ""))
+                rd["contact"]["phone"] = c3.text_input("Phone", rd["contact"].get("phone", ""))
+                
+                c4, c5, c6 = st.columns(3)
+                rd["contact"]["location"] = c4.text_input("Location", rd["contact"].get("location", ""))
+                rd["contact"]["linkedin"] = c5.text_input("LinkedIn", rd["contact"].get("linkedin", ""))
+                rd["contact"]["github"] = c6.text_input("GitHub", rd["contact"].get("github", ""))
+
+                st.subheader("Professional Summary")
+                rd["summary"] = st.text_area("Summary", rd.get("summary", ""), height=100)
+
+                st.subheader("Skills")
+                s1, s2 = st.columns(2)
+                tech_str = s1.text_area("Technical Skills (comma separated)", ", ".join(rd["skills"].get("technical", [])))
+                soft_str = s2.text_area("Soft Skills (comma separated)", ", ".join(rd["skills"].get("soft", [])))
+                rd["skills"]["technical"] = [s.strip() for s in tech_str.split(",") if s.strip()]
+                rd["skills"]["soft"] = [s.strip() for s in soft_str.split(",") if s.strip()]
+
+                st.subheader("Experience")
+                st.caption("Tip: Separate bullet points with a new line (Enter).")
+                exp_data = []
+                for exp in rd.get("experience", []):
+                    exp_data.append({
+                        "title": exp.get("title", ""),
+                        "company": exp.get("company", ""),
+                        "location": exp.get("location", ""),
+                        "start_date": exp.get("start_date", ""),
+                        "end_date": exp.get("end_date", ""),
+                        "bullets": "\n".join(exp.get("bullets", []))
+                    })
+                # Show an empty row if no experience was found so the user can type one in
+                if not exp_data:
+                    exp_data = [{"title": "", "company": "", "location": "", "start_date": "", "end_date": "", "bullets": ""}]
+                
+                edited_exp = st.data_editor(exp_data, num_rows="dynamic", use_container_width=True, key="exp_editor")
+                
+                # Sanitize experience back into JSON format and guarantee keys exist
+                rd["experience"] = []
+                for exp in edited_exp:
+                    if str(exp.get("title", "")).strip() or str(exp.get("company", "")).strip():
+                        rd["experience"].append({
+                            "title": str(exp.get("title", "")),
+                            "company": str(exp.get("company", "")),
+                            "location": str(exp.get("location", "")),
+                            "start_date": str(exp.get("start_date", "")),
+                            "end_date": str(exp.get("end_date", "")),
+                            "bullets": [b.strip() for b in str(exp.get("bullets", "")).split("\n") if b.strip()]
+                        })
+
+                st.subheader("Education")
+                edu_data = []
+                for edu in rd.get("education", []):
+                    edu_data.append({
+                        "degree": edu.get("degree", ""),
+                        "institution": edu.get("institution", ""),
+                        "location": edu.get("location", ""),
+                        "graduation_date": edu.get("graduation_date", ""),
+                        "gpa": edu.get("gpa", "")
+                    })
+                # Show an empty row if no education was found
+                if not edu_data:
+                    edu_data = [{"degree": "", "institution": "", "location": "", "graduation_date": "", "gpa": ""}]
+                
+                edited_edu = st.data_editor(edu_data, num_rows="dynamic", use_container_width=True, key="edu_editor")
+                
+                # Sanitize education back into JSON format and guarantee keys exist
+                rd["education"] = []
+                for edu in edited_edu:
+                    if str(edu.get("degree", "")).strip() or str(edu.get("institution", "")).strip():
+                        rd["education"].append({
+                            "degree": str(edu.get("degree", "")),
+                            "institution": str(edu.get("institution", "")),
+                            "location": str(edu.get("location", "")),
+                            "graduation_date": str(edu.get("graduation_date", "")),
+                            "gpa": str(edu.get("gpa", ""))
+                        })
+                
+                # Save sanitized data back to session state
+                st.session_state.resume_data = rd
 
 
         # ═══════════════════════════════════════════════════════════════════
@@ -297,6 +362,7 @@ if uploaded_file is not None:
                         )
                     except Exception as exc:
                         st.warning(f"QR generation failed: {exc}")
+
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
