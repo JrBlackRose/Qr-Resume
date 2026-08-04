@@ -186,26 +186,26 @@ if uploaded_file is not None:
                     st.info("Make sure your GROQ_API_KEY is correctly set in Streamlit Secrets.")
                     st.session_state.resume_data = None
 
-	if st.session_state.resume_data:
-        	rd = st.session_state.resume_data
+    if st.session_state.resume_data:
+            rd = st.session_state.resume_data
         
-	        # --- DEFENSIVE SANITIZATION ---
-        	# Force lazy LLM outputs into the correct data types
-        	if not isinstance(rd.get("contact"), dict): rd["contact"] = {}
-        	if not isinstance(rd.get("experience"), list): rd["experience"] = []
-        	if not isinstance(rd.get("education"), list): rd["education"] = []
-        	if not isinstance(rd.get("skills"), dict): rd["skills"] = {"technical": [], "soft": []}
+            # --- DEFENSIVE SANITIZATION ---
+            # Force lazy LLM outputs into the correct data types
+            if not isinstance(rd.get("contact"), dict): rd["contact"] = {}
+            if not isinstance(rd.get("experience"), list): rd["experience"] = []
+            if not isinstance(rd.get("education"), list): rd["education"] = []
+            if not isinstance(rd.get("skills"), dict): rd["skills"] = {"technical": [], "soft": []}
         
-        	# --- RENDER METRICS ---
-        	m1, m2, m3, m4 = st.columns(4)
-        	m1.metric("Name",       rd["contact"].get("name", "—") or "—")
-        	m2.metric("Experience", f"{len(rd['experience'])} roles")
-        	m3.metric("Education",  f"{len(rd['education'])} entries")
+            # --- RENDER METRICS ---
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Name",       rd["contact"].get("name", "—") or "—")
+            m2.metric("Experience", f"{len(rd['experience'])} roles")
+            m3.metric("Education",  f"{len(rd['education'])} entries")
         
-        	# Safely count skills even if the AI returned nulls inside the dict
-        	tech_count = len(rd["skills"].get("technical") or [])
-        	soft_count = len(rd["skills"].get("soft") or [])
-        	m4.metric("Skills", f"{tech_count + soft_count}")
+            # Safely count skills even if the AI returned nulls inside the dict
+            tech_count = len(rd["skills"].get("technical") or [])
+            soft_count = len(rd["skills"].get("soft") or [])
+            m4.metric("Skills", f"{tech_count + soft_count}")
 
         # ═══════════════════════════════════════════════════════════════════
         #  STEP 4 — GENERATE PDF
