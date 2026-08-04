@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import requests
+import io
 
 import streamlit as st
 
@@ -340,26 +341,52 @@ if uploaded_file is not None:
                         "Typst-compiled, searchable, ATS-safe"
                     )
 
-                # ── Temporary QR code ─────────────────────────────────────
+                # ── View-Only QR code ─────────────────────────────────────
                 with qr_col:
                     st.subheader("📱 Share via QR")
-                    st.caption("Generate a temporary link to let interviewers scan and view your PDF instantly.")
+                    st.caption("Generate a view-only link to let interviewers scan and read your resume without downloading.")
                     
                     if st.button("Generate Interview QR", use_container_width=True):
-                        with st.spinner("Creating secure temporary link..."):
+                        with st.spinner("Creating secure view-only image link..."):
                             try:
-                                # Upload to tmpfiles.org (deletes automatically after 60 mins)
-                                files = {'file': (pdf_filename, st.session_state.pdf_bytes, 'application/pdf')}
+                                import fitz
+                                from PIL import Image
+                                
+                                # 1. Convert PDF to High-Res Images
+                                doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                                images = []
+                                for page in doc:
+                                    # Render to RGB image at 150 DPI for crisp reading
+                                    pix = page.get_pixmap(dpi=150, alpha=False)
+                                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                                    images.append(img)
+                                
+                                # 2. Stitch pages together vertically (if resume is multi-page)
+                                total_height = sum(i.size[1] for i in images)
+                                max_width = max(i.size[0] for i in images)
+                                combined_img = Image.new('RGB', (max_width, total_height))
+                                
+                                y_offset = 0
+                                for im in images:
+                                    combined_img.paste(im, (0, y_offset))
+                                    y_offset += im.size[1]
+                                
+                                # 3. Save as PNG bytes
+                                img_buf = io.BytesIO()
+                                combined_img.save(img_buf, format="PNG")
+                                
+                                # 4. Upload PNG instead of PDF to force in-browser viewing
+                                files = {'file': ('resume.png', img_buf.getvalue(), 'image/png')}
                                 res = requests.post("https://tmpfiles.org/api/v1/upload", files=files)
                                 
                                 if res.status_code == 200:
-                                    # Convert the view URL to a direct download/display URL
                                     raw_url = res.json()['data']['url']
+                                    # The /dl/ path serves the raw image directly to the browser screen
                                     direct_url = raw_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
                                     
                                     qr_png = generate_qr_bytes(url=direct_url)
-                                    st.image(qr_png, caption="Scan to view PDF", width=170)
-                                    st.success("Link active for 60 minutes!")
+                                    st.image(qr_png, caption="Scan to view Resume", width=170)
+                                    st.success("View-only link active for 60 minutes!")
                                 else:
                                     st.error("Upload failed. Try again later.")
                             except Exception as exc:
