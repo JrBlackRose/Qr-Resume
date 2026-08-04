@@ -69,7 +69,7 @@ with st.sidebar:
     model_name: str = st.selectbox(
         "AI Model",
         options=["llama-3.1-8b-instant", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"],
-        index=0,
+        index=1,
         help="Select the Groq cloud model to use for structuring. The 70b model is highly recommended for accuracy.",
     )
 
