@@ -48,11 +48,11 @@ st.markdown(
 
 # ── Session state initialisation ─────────────────────────────────────────────
 _DEFAULTS: dict = {
-    "last_filename":  None,      
-    "raw_text":       None,      
-    "resume_data":    None,      
-    "pdf_bytes":      None,      
-    "qr_url":         "https://metaresume.streamlit.app", # Updated default!
+    "last_filename":  None,
+    "raw_text":       None,
+    "resume_data":    None,
+    "pdf_bytes":      None,
+    "qr_url":         "https://metaresume.streamlit.app",
 }
 for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
@@ -172,16 +172,16 @@ if uploaded_file is not None:
                 disabled=(st.session_state.resume_data is not None),
             )
 
-    if do_ai:
+        if do_ai:
             with st.spinner(f"Sending to {model_name} via Groq API…"):
-        try:
+                try:
                     st.session_state.resume_data = structure_resume(
                         st.session_state.raw_text,
                         model=model_name,
                     )
-                    st.session_state.pdf_bytes = None  # invalidate old PDF
+                    st.session_state.pdf_bytes = None
                     st.success("✅ Resume structured successfully!")
-        except Exception as exc:
+                except Exception as exc:
                     st.error(f"❌ AI structuring failed: {exc}")
                     st.info("Make sure your GROQ_API_KEY is correctly set in Streamlit Secrets.")
                     st.session_state.resume_data = None
@@ -212,7 +212,7 @@ if uploaded_file is not None:
                     try:
                         edited = json.loads(json_input)
                         st.session_state.resume_data = edited
-                        st.session_state.pdf_bytes   = None  # require re-generation
+                        st.session_state.pdf_bytes   = None
                         st.success("JSON saved — click Generate PDF below.")
                     except json.JSONDecodeError as exc:
                         st.error(f"Invalid JSON: {exc}")
@@ -242,7 +242,7 @@ if uploaded_file is not None:
                         st.session_state.pdf_bytes = None
 
             if st.session_state.pdf_bytes:
-                # Build a clean filename from the candidate's name
+                # Build a clean filename
                 contact_name = (
                     st.session_state.resume_data
                     .get("contact", {})
@@ -290,13 +290,6 @@ if uploaded_file is not None:
                         )
                     except Exception as exc:
                         st.warning(f"QR generation failed: {exc}")
-
-                st.divider()
-                st.caption(
-                    "💡 **Tip:** To share over the internet, install `cloudflared` and run  "
-                    "`cloudflared tunnel --url http://localhost:8501`.  "
-                    "Paste the generated URL into the **QR Code URL** field in the sidebar."
-                )
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
