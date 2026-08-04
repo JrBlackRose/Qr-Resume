@@ -186,26 +186,47 @@ if uploaded_file is not None:
                     st.info("Make sure your GROQ_API_KEY is correctly set in Streamlit Secrets.")
                     st.session_state.resume_data = None
 
-    if st.session_state.resume_data:
+        if st.session_state.resume_data:
             rd = st.session_state.resume_data
-        
+
             # --- DEFENSIVE SANITIZATION ---
-            # Force lazy LLM outputs into the correct data types
             if not isinstance(rd.get("contact"), dict): rd["contact"] = {}
             if not isinstance(rd.get("experience"), list): rd["experience"] = []
             if not isinstance(rd.get("education"), list): rd["education"] = []
             if not isinstance(rd.get("skills"), dict): rd["skills"] = {"technical": [], "soft": []}
-        
+
             # --- RENDER METRICS ---
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Name",       rd["contact"].get("name", "—") or "—")
             m2.metric("Experience", f"{len(rd['experience'])} roles")
             m3.metric("Education",  f"{len(rd['education'])} entries")
-        
-            # Safely count skills even if the AI returned nulls inside the dict
+
+            # Safely count skills
             tech_count = len(rd["skills"].get("technical") or [])
             soft_count = len(rd["skills"].get("soft") or [])
             m4.metric("Skills", f"{tech_count + soft_count}")
+
+            # --- JSON EDITOR ---
+            with st.expander("🧩 Edit structured JSON (optional)", expanded=False):
+                st.caption(
+                    "You can correct any field before generating the PDF. "
+                    "Changes are applied on the next 'Generate PDF' click."
+                )
+                json_input = st.text_area(
+                    "json_editor",
+                    value=json.dumps(st.session_state.resume_data, indent=2, ensure_ascii=False),
+                    height=480,
+                    label_visibility="collapsed",
+                )
+                if st.button("💾 Save JSON edits"):
+                    try:
+                        edited = json.loads(json_input)
+                        st.session_state.resume_data = edited
+                        st.session_state.pdf_bytes   = None
+                        st.success("JSON saved — click Generate PDF below.")
+                    except json.JSONDecodeError as exc:
+                        st.error(f"Invalid JSON: {exc}")
+
 
         # ═══════════════════════════════════════════════════════════════════
         #  STEP 4 — GENERATE PDF
@@ -231,7 +252,6 @@ if uploaded_file is not None:
                         st.session_state.pdf_bytes = None
 
             if st.session_state.pdf_bytes:
-                # Build a clean filename
                 contact_name = (
                     st.session_state.resume_data
                     .get("contact", {})
@@ -247,7 +267,6 @@ if uploaded_file is not None:
 
                 pdf_col, qr_col = st.columns([3, 1])
 
-                # ── Download button ───────────────────────────────────────
                 with pdf_col:
                     st.subheader("⬇️ Download")
                     st.download_button(
@@ -264,7 +283,6 @@ if uploaded_file is not None:
                         "Typst-compiled, searchable, ATS-safe"
                     )
 
-                # ── QR code ───────────────────────────────────────────────
                 with qr_col:
                     st.subheader("📱 Share via QR")
                     try:
@@ -279,7 +297,6 @@ if uploaded_file is not None:
                         )
                     except Exception as exc:
                         st.warning(f"QR generation failed: {exc}")
-
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
